@@ -20,6 +20,7 @@ replace (
 	go.opentelemetry.io/otel/trace => go.opentelemetry.io/otel/trace v1.28.0
 	go.opentelemetry.io/proto/otlp => go.opentelemetry.io/proto/otlp v1.3.1
 	go.qase.io/client => github.com/rancher/qase-go/client v0.0.0-20250627195016-142ff3dfec16
+	go.qase.io/qase-api-client => github.com/qase-tms/qase-go/qase-api-client v1.2.0
 
 	helm.sh/helm/v3 => github.com/rancher/helm/v3 v3.16.1-rancher1
 	k8s.io/api => k8s.io/api v0.32.2
@@ -60,11 +61,10 @@ replace (
 
 require (
 	github.com/rancher/rancher/pkg/apis v0.0.0
-	github.com/rancher/shepherd v0.0.0-20250930150356-0687c0e2375d
+	github.com/rancher/shepherd v0.0.0-20251003203259-669abb78af51
 )
 
 require (
-	github.com/antihax/optional v1.0.0
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/pkg/errors v0.9.1
 	github.com/rancher/machine v0.15.0-rancher131
@@ -73,7 +73,6 @@ require (
 	github.com/rancher/wrangler v1.1.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
-	go.qase.io/client v0.0.0-20231114201952-65195ec001fa
 	golang.org/x/crypto v0.40.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.33.2
@@ -83,6 +82,8 @@ require (
 	sigs.k8s.io/cluster-api v1.10.2
 
 )
+
+require gopkg.in/validator.v2 v2.0.1 // indirect
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
@@ -190,6 +191,7 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel v1.36.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
+	go.qase.io/qase-api-client v0.0.0-00010101000000-000000000000
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
