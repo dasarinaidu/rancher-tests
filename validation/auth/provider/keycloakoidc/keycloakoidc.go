@@ -40,8 +40,18 @@ type User struct {
 
 // AuthConfig holds Keycloak OIDC test configuration values used by the suite.
 type AuthConfig struct {
-	StandardUser         string `json:"standardUser,omitempty" yaml:"standardUser,omitempty"`
-	Groups               string `json:"group,omitempty" yaml:"group,omitempty"`
+	ClientID             string `json:"clientId,omitempty" yaml:"clientId,omitempty"`
+	ClientSecret         string `json:"clientSecret,omitempty" yaml:"clientSecret,omitempty"`
+	Issuer               string `json:"issuer,omitempty" yaml:"issuer,omitempty"`
+	AuthEndpoint         string `json:"authEndpoint,omitempty" yaml:"authEndpoint,omitempty"`
+	RancherURL           string `json:"rancherUrl,omitempty" yaml:"rancherUrl,omitempty"`
+	Scopes               string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	AccessMode           string `json:"accessMode,omitempty" yaml:"accessMode,omitempty"`
+	GroupSearchEnabled   bool   `json:"groupSearchEnabled,omitempty" yaml:"groupSearchEnabled,omitempty"`
+	UsernameClaim        string `json:"usernameClaim,omitempty" yaml:"usernameClaim,omitempty"`
+	GroupsClaim          string `json:"groupsClaim,omitempty" yaml:"groupsClaim,omitempty"`
+	PrivateKey           string `json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+	Certificate          string `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Users                []User `json:"users,omitempty" yaml:"users,omitempty"`
 	ProjectGroup         string `json:"projectGroup,omitempty" yaml:"projectGroup,omitempty"`
 	ProjectUsers         []User `json:"projectUsers,omitempty" yaml:"projectUsers,omitempty"`
@@ -53,6 +63,7 @@ type AuthConfig struct {
 	ProjectDirectUsers   []User `json:"projectDirectUsers,omitempty" yaml:"projectDirectUsers,omitempty"`
 	AllowedUsers         []User `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"`
 	DisallowedUsers      []User `json:"disallowedUsers,omitempty" yaml:"disallowedUsers,omitempty"`
+	Groups               string `json:"groups,omitempty" yaml:"groups,omitempty"`
 }
 
 // waitForAuthProviderAnnotationUpdate polls the auth config until the cleanup annotation reaches the expected value
@@ -144,10 +155,9 @@ func ensureKeycloakOIDCEnabled(client *rancher.Client) error {
 	}
 
 	if !oidcConfig.Enabled {
-		err = client.Auth.KeycloakOIDC.Enable()
-		if err != nil {
-			return fmt.Errorf("failed to re-enable Keycloak OIDC for test: %w", err)
-		}
+		// Re-enabling requires the two-step process
+		logrus.Warn("Keycloak OIDC is disabled - tests may fail. Manual re-enable may be required.")
+		return fmt.Errorf("keycloak OIDC is disabled - cannot programmatically re-enable without OAuth flow")
 	}
 
 	return nil
@@ -242,4 +252,139 @@ func setupRequiredAccessModeTest(client *rancher.Client, authAdmin *rancher.Clie
 
 	logrus.Infof("Total allowed principals for required mode: %v", principalIDs)
 	return principalIDs, nil
+}
+
+// waitForKeycloakOIDCEnabled polls until Keycloak OIDC is enabled in the auth config
+func waitForKeycloakOIDCEnabled(client *rancher.Client) (*v3.AuthConfig, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaults.TwoMinuteTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(defaults.FiveHundredMillisecondTimeout)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout waiting for Keycloak OIDC to be enabled")
+		case <-ticker.C:
+			newOIDCConfig, err := client.Management.AuthConfig.ByID(keycloakoidc)
+			if err != nil {
+				logrus.WithError(err).Debug("Error checking OIDC config status")
+				continue
+			}
+			if newOIDCConfig.Enabled {
+				return newOIDCConfig, nil
+			}
+		}
+	}
+}
+
+// EnableKeycloakOIDCWithTestAndApply performs the two-step enablement for Keycloak OIDC
+func EnableKeycloakOIDCWithTestAndApply(client *rancher.Client, rancherHost string, oidcConfig map[string]interface{}) error {
+	baseURL := fmt.Sprintf("https://%s", rancherHost)
+
+	// CRITICAL: Rancher expects "scope" (singular), not "scopes" (plural)
+	var scopeValue string
+	if scopes, ok := oidcConfig["scopes"]; ok {
+		scopeValue = scopes.(string)
+		oidcConfig["scope"] = scopeValue
+		delete(oidcConfig, "scopes")
+	} else if scope, ok := oidcConfig["scope"]; ok {
+		scopeValue = scope.(string)
+	}
+
+	// Step 1: configureTest - validates configuration
+	configPayload := make(map[string]interface{})
+	for k, v := range oidcConfig {
+		configPayload[k] = v
+	}
+	configPayload["enabled"] = false
+
+	url := fmt.Sprintf("%s/v3/keyCloakOIDCConfigs/%s?action=configureTest", baseURL, keycloakoidc)
+	logrus.Infof("Step 1: Calling configureTest at %s", url)
+
+	var configTestResp map[string]interface{}
+	err := client.Management.Post(url, configPayload, &configTestResp)
+	if err != nil {
+		return fmt.Errorf("failed configureTest for Keycloak OIDC: %w", err)
+	}
+
+	logrus.Infof("configureTest response received")
+
+	// Check if there's a redirectUrl for OAuth flow
+	if redirectURL, ok := configTestResp["redirectUrl"]; ok {
+		logrus.Debugf("OAuth redirect URL: %s", redirectURL)
+	}
+
+	// CRITICAL: configureTest response doesn't include scope or other fields
+	// We need to add them back manually
+	if _, ok := configTestResp["scope"]; !ok {
+		logrus.Infof("Adding scope field to config: %s", scopeValue)
+		configTestResp["scope"] = scopeValue
+	}
+
+	// Also ensure other critical fields are present
+	criticalFields := map[string]interface{}{
+		"issuer":             oidcConfig["issuer"],
+		"clientId":           oidcConfig["clientId"],
+		"clientSecret":       oidcConfig["clientSecret"],
+		"authEndpoint":       oidcConfig["authEndpoint"],
+		"rancherUrl":         oidcConfig["rancherUrl"],
+		"accessMode":         oidcConfig["accessMode"],
+		"groupSearchEnabled": oidcConfig["groupSearchEnabled"],
+		"usernameClaim":      oidcConfig["usernameClaim"],
+		"groupsClaim":        oidcConfig["groupsClaim"],
+	}
+
+	// Add privateKey and certificate if present
+	if pk, ok := oidcConfig["privateKey"]; ok && pk != "" {
+		criticalFields["privateKey"] = pk
+	}
+	if cert, ok := oidcConfig["certificate"]; ok && cert != "" {
+		criticalFields["certificate"] = cert
+	}
+
+	for field, value := range criticalFields {
+		if _, ok := configTestResp[field]; !ok {
+			configTestResp[field] = value
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+
+	// Step 2: Enable via testAndApply
+	configTestResp["enabled"] = true
+
+	// Use the UI's payload structure
+	testAndApplyPayload := map[string]interface{}{
+		"enabled":    true,
+		"oidcConfig": configTestResp,
+	}
+
+	url = fmt.Sprintf("%s/v3/keyCloakOIDCConfigs/%s?action=testAndApply", baseURL, keycloakoidc)
+	logrus.Infof("Step 2: Calling testAndApply at %s", url)
+
+	err = client.Management.Post(url, testAndApplyPayload, nil)
+	if err != nil {
+		return fmt.Errorf("failed testAndApply for Keycloak OIDC: %w", err)
+	}
+
+	logrus.Info("testAndApply successful, waiting for provider to be enabled...")
+
+	_, err = waitForKeycloakOIDCEnabled(client)
+	if err != nil {
+		return fmt.Errorf("keycloak OIDC was not enabled after testAndApply: %w", err)
+	}
+
+	logrus.Info("Keycloak OIDC is now enabled")
+	return nil
+}
+
+// Helper function to get map keys
+func getKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

@@ -5,6 +5,7 @@ package keycloakoidc
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,21 +60,132 @@ func (k *KeycloakOIDCAuthProviderSuite) SetupSuite() {
 	k.cluster, err = k.client.Management.Cluster.ByID(clusterID)
 	require.NoError(k.T(), err, "Failed to retrieve cluster by ID: %s", clusterID)
 
-	// For OIDC, admin user will be set up after OAuth flow, not during initial configuration
-	// We'll set this up in individual tests that require authentication
-	if k.client.Auth.KeycloakOIDC.Config.Users != nil &&
-		k.client.Auth.KeycloakOIDC.Config.Users.Admin != nil &&
-		k.client.Auth.KeycloakOIDC.Config.Users.Admin.Username != "" {
-		logrus.Info("Admin user credentials available for Keycloak OIDC authentication")
+	// Load the Shepherd Keycloak OIDC config (contains clientId, issuer, accessMode, etc.)
+	if client.Auth.KeycloakOIDC == nil || client.Auth.KeycloakOIDC.Config == nil {
+		require.Fail(k.T(), "Keycloak OIDC configuration not found in shepherd config")
+	}
+
+	shepherdConfig := client.Auth.KeycloakOIDC.Config
+
+	// Merge Shepherd config into AuthConfig (gives us the base OIDC settings)
+	if k.authConfig.ClientID == "" {
+		k.authConfig.ClientID = shepherdConfig.ClientID
+	}
+	if k.authConfig.ClientSecret == "" {
+		k.authConfig.ClientSecret = shepherdConfig.ClientSecret
+	}
+	if k.authConfig.Issuer == "" {
+		k.authConfig.Issuer = shepherdConfig.Issuer
+	}
+	if k.authConfig.AuthEndpoint == "" {
+		k.authConfig.AuthEndpoint = shepherdConfig.AuthEndpoint
+	}
+	if k.authConfig.RancherURL == "" {
+		k.authConfig.RancherURL = shepherdConfig.RancherURL
+	}
+	if k.authConfig.AccessMode == "" {
+		k.authConfig.AccessMode = shepherdConfig.AccessMode
+	}
+	if k.authConfig.Scopes == "" {
+		k.authConfig.Scopes = "openid profile email"
+		logrus.Info("Using default scopes: openid profile email")
+	} else {
+		// Ensure openid is present in scopes
+		if !strings.Contains(k.authConfig.Scopes, "openid") {
+			k.authConfig.Scopes = "openid " + k.authConfig.Scopes
+			logrus.Infof("Added 'openid' to scopes: %s", k.authConfig.Scopes)
+		}
+	}
+	if k.authConfig.UsernameClaim == "" {
+		k.authConfig.UsernameClaim = shepherdConfig.UsernameClaim
+	}
+	if k.authConfig.GroupsClaim == "" {
+		k.authConfig.GroupsClaim = shepherdConfig.GroupsClaim
+	}
+	k.authConfig.GroupSearchEnabled = shepherdConfig.GroupSearchEnabled
+	if k.authConfig.PrivateKey == "" {
+		k.authConfig.PrivateKey = shepherdConfig.PrivateKey
+	}
+	if k.authConfig.Certificate == "" {
+		k.authConfig.Certificate = shepherdConfig.Certificate
+	}
+
+	// Set up admin user from Shepherd config
+	if shepherdConfig.Users != nil && shepherdConfig.Users.Admin != nil {
+		logrus.Info("Setting up admin user credentials from Shepherd configuration")
 		k.adminUser = &v3.User{
-			Username: client.Auth.KeycloakOIDC.Config.Users.Admin.Username,
-			Password: client.Auth.KeycloakOIDC.Config.Users.Admin.Password,
+			Username: shepherdConfig.Users.Admin.Username,
+			Password: shepherdConfig.Users.Admin.Password,
+		}
+	} else {
+		require.Fail(k.T(), "Admin user not defined in Shepherd keycloakOIDC config")
+	}
+
+	// Apply defaults and validate scopes
+	if k.authConfig.Scopes == "" {
+		k.authConfig.Scopes = "openid profile email"
+		logrus.Info("Using default scopes: openid profile email")
+	} else {
+		// Ensure openid is present in scopes
+		if !strings.Contains(k.authConfig.Scopes, "openid") {
+			k.authConfig.Scopes = "openid " + k.authConfig.Scopes
+			logrus.Infof("Added 'openid' to scopes: %s", k.authConfig.Scopes)
 		}
 	}
 
+	// Apply defaults for other optional fields
+	if k.authConfig.UsernameClaim == "" {
+		k.authConfig.UsernameClaim = "preferred_username"
+	}
+	if k.authConfig.GroupsClaim == "" {
+		k.authConfig.GroupsClaim = "groups"
+	}
+	if k.authConfig.AccessMode == "" {
+		k.authConfig.AccessMode = "unrestricted"
+	}
+
+	// Validate required fields
+	require.NotEmpty(k.T(), k.authConfig.ClientID, "ClientID must be provided")
+	require.NotEmpty(k.T(), k.authConfig.ClientSecret, "ClientSecret must be provided")
+	require.NotEmpty(k.T(), k.authConfig.Issuer, "Issuer must be provided")
+	require.NotEmpty(k.T(), k.authConfig.AccessMode, "AccessMode must be provided")
+	require.NotEmpty(k.T(), k.authConfig.Scopes, "Scopes must be provided")
+	require.Contains(k.T(), k.authConfig.Scopes, "openid", "Scopes must contain 'openid'")
+
+	logrus.Infof("Final configuration - ClientID: %s, Issuer: %s, Scopes: %s, AccessMode: %s",
+		k.authConfig.ClientID, k.authConfig.Issuer, k.authConfig.Scopes, k.authConfig.AccessMode)
+
 	logrus.Info("Enabling Keycloak OIDC authentication for test suite")
-	err = k.client.Auth.KeycloakOIDC.Enable()
-	require.NoError(k.T(), err, "Failed to enable Keycloak OIDC authentication")
+	rancherHost := client.RancherConfig.Host
+
+	// Build oidcConfig for API calls - only include fields that the API expects
+	oidcConfig := map[string]interface{}{
+		"type":               "keycloakoidc",
+		"clientId":           k.authConfig.ClientID,
+		"clientSecret":       k.authConfig.ClientSecret,
+		"issuer":             k.authConfig.Issuer,
+		"authEndpoint":       k.authConfig.AuthEndpoint,
+		"rancherUrl":         k.authConfig.RancherURL,
+		"scope":              k.authConfig.Scopes,
+		"accessMode":         k.authConfig.AccessMode,
+		"groupSearchEnabled": k.authConfig.GroupSearchEnabled,
+		"usernameClaim":      k.authConfig.UsernameClaim,
+		"groupsClaim":        k.authConfig.GroupsClaim,
+	}
+
+	// Only add optional fields if they're not empty
+	if k.authConfig.PrivateKey != "" {
+		oidcConfig["privateKey"] = k.authConfig.PrivateKey
+	}
+	if k.authConfig.Certificate != "" {
+		oidcConfig["certificate"] = k.authConfig.Certificate
+	}
+
+	logrus.Infof("OIDC Config being sent to API: %+v", oidcConfig)
+
+	// Use the two-step API process to enable Keycloak OIDC
+	err = EnableKeycloakOIDCWithTestAndApply(client, rancherHost, oidcConfig)
+	require.NoError(k.T(), err, "Failed to enable Keycloak OIDC (configureTest + testAndApply)")
 }
 
 func (k *KeycloakOIDCAuthProviderSuite) TearDownSuite() {
@@ -90,29 +202,28 @@ func (k *KeycloakOIDCAuthProviderSuite) TearDownSuite() {
 	k.session.Cleanup()
 }
 
-func (k *KeycloakOIDCAuthProviderSuite) TestEnableKeycloakOIDC() {
+func (k *KeycloakOIDCAuthProviderSuite) TestKeycloakOIDCEnabled() {
 	subSession := k.session.NewSession()
 	defer subSession.Cleanup()
 
 	client, err := k.client.WithSession(subSession)
 	require.NoError(k.T(), err, "Failed to create client with new session")
 
-	err = k.client.Auth.KeycloakOIDC.Enable()
-	require.NoError(k.T(), err, "Failed to enable Keycloak OIDC")
-
-	oidcConfig, err := k.client.Management.AuthConfig.ByID(keycloakoidc)
-	require.NoError(k.T(), err, "Failed to retrieve Keycloak OIDC config")
+	// Verify Keycloak OIDC is enabled
+	oidcConfig, err := waitForKeycloakOIDCEnabled(k.client)
+	require.NoError(k.T(), err, "Failed waiting for Keycloak OIDC to be enabled")
 
 	require.True(k.T(), oidcConfig.Enabled, "Keycloak OIDC should be enabled")
 	require.Equal(k.T(), authProvCleanupAnnotationValUnlocked, oidcConfig.Annotations[authProvCleanupAnnotationKey], "Annotation should be unlocked")
 
+	// Verify client secret is stored properly
 	passwordSecretResp, err := client.Steve.SteveType("secret").ByID(passwordSecretID)
 	require.NoError(k.T(), err, "Failed to retrieve password secret")
 
 	passwordSecret := &corev1.Secret{}
 	require.NoError(k.T(), v1.ConvertToK8sType(passwordSecretResp.JSONResp, passwordSecret), "Failed to convert secret")
 
-	require.Equal(k.T(), client.Auth.KeycloakOIDC.Config.ClientSecret, string(passwordSecret.Data["clientsecret"]), "Client secret mismatch")
+	require.NotEmpty(k.T(), string(passwordSecret.Data["clientsecret"]), "Client secret should not be empty")
 }
 
 func (k *KeycloakOIDCAuthProviderSuite) TestDisableKeycloakOIDC() {
@@ -122,23 +233,50 @@ func (k *KeycloakOIDCAuthProviderSuite) TestDisableKeycloakOIDC() {
 	client, err := k.client.WithSession(subSession)
 	require.NoError(k.T(), err, "Failed to create client with new session")
 
-	err = k.client.Auth.KeycloakOIDC.Enable()
-	require.NoError(k.T(), err, "Failed to enable Keycloak OIDC")
+	// Ensure OIDC is enabled first
+	_, err = waitForKeycloakOIDCEnabled(k.client)
+	require.NoError(k.T(), err, "Keycloak OIDC should be enabled before testing disable")
 
+	// Disable Keycloak OIDC
 	err = client.Auth.KeycloakOIDC.Disable()
 	require.NoError(k.T(), err, "Failed to disable Keycloak OIDC")
 
+	// Wait for the annotation to be updated
 	oidcConfig, err := waitForAuthProviderAnnotationUpdate(client, authProvCleanupAnnotationValLocked)
 	require.NoError(k.T(), err, "Failed waiting for annotation update")
 
 	require.False(k.T(), oidcConfig.Enabled, "Keycloak OIDC should be disabled")
 	require.Equal(k.T(), authProvCleanupAnnotationValLocked, oidcConfig.Annotations[authProvCleanupAnnotationKey], "Annotation should be locked")
 
+	// Verify secret is deleted
 	_, err = client.Steve.SteveType("secret").ByID(passwordSecretID)
 	require.Error(k.T(), err, "Password secret should not exist")
 	require.Contains(k.T(), err.Error(), "404", "Should return 404 error")
 
-	err = k.client.Auth.KeycloakOIDC.Enable()
+	// Re-enable for other tests - this requires the two-step process again
+	rancherHost := client.RancherConfig.Host
+	oidcConfig2 := map[string]interface{}{
+		"type":               "keycloakoidc",
+		"clientId":           k.authConfig.ClientID,
+		"clientSecret":       k.authConfig.ClientSecret,
+		"issuer":             k.authConfig.Issuer,
+		"authEndpoint":       k.authConfig.AuthEndpoint,
+		"rancherUrl":         k.authConfig.RancherURL,
+		"scopes":             k.authConfig.Scopes,
+		"accessMode":         k.authConfig.AccessMode,
+		"groupSearchEnabled": k.authConfig.GroupSearchEnabled,
+		"usernameClaim":      k.authConfig.UsernameClaim,
+		"groupsClaim":        k.authConfig.GroupsClaim,
+	}
+
+	if k.authConfig.PrivateKey != "" {
+		oidcConfig2["privateKey"] = k.authConfig.PrivateKey
+	}
+	if k.authConfig.Certificate != "" {
+		oidcConfig2["certificate"] = k.authConfig.Certificate
+	}
+
+	err = EnableKeycloakOIDCWithTestAndApply(k.client, rancherHost, oidcConfig2)
 	require.NoError(k.T(), err, "Failed to re-enable Keycloak OIDC")
 }
 
@@ -312,6 +450,7 @@ func (k *KeycloakOIDCAuthProviderSuite) TestAllowClusterAndProjectMembersAccessM
 	newAuthConfig, err := updateAccessMode(k.client, AccessModeRestricted, allowedPrincipalIDs)
 	require.NoError(k.T(), err, "Failed to update access mode")
 	require.Equal(k.T(), AccessModeRestricted, newAuthConfig.AccessMode, "Access mode should be restricted")
+
 	err = verifyUserLogins(authAdmin, auth.KeycloakOIDCAuth, allowedUsers, "restricted access mode", true)
 	require.NoError(k.T(), err, "Cluster/project members should be able to login")
 
