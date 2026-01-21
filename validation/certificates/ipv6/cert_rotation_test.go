@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	rkev1 "github.com/rancher/rancher/pkg/apis/rke.cattle.io/v1"
 	"github.com/rancher/shepherd/clients/rancher"
 	v1 "github.com/rancher/shepherd/clients/rancher/v1"
 	extClusters "github.com/rancher/shepherd/extensions/clusters"
@@ -17,7 +18,9 @@ import (
 	"github.com/rancher/tests/actions/config/defaults"
 	"github.com/rancher/tests/actions/logging"
 	"github.com/rancher/tests/actions/provisioning"
+	"github.com/rancher/tests/actions/provisioninginput"
 	"github.com/rancher/tests/actions/qase"
+	"github.com/rancher/tests/actions/workloads/deployment"
 	"github.com/rancher/tests/actions/workloads/pods"
 	"github.com/rancher/tests/validation/certificates"
 	resources "github.com/rancher/tests/validation/provisioning/resources/provisioncluster"
@@ -33,6 +36,7 @@ type CertRotationIPv6TestSuite struct {
 	client       *rancher.Client
 	cattleConfig map[string]any
 	rke2Cluster  *v1.SteveAPIObject
+	k3sCluster   *v1.SteveAPIObject
 }
 
 func (c *CertRotationIPv6TestSuite) TearDownSuite() {
@@ -71,6 +75,22 @@ func (c *CertRotationIPv6TestSuite) SetupSuite() {
 	logrus.Info("Provisioning RKE2 cluster")
 	c.rke2Cluster, err = resources.ProvisionRKE2K3SCluster(c.T(), standardUserClient, extClusters.RKE2ClusterType.String(), provider, *clusterConfig, machineConfigSpec, nil, true, false)
 	require.NoError(c.T(), err)
+
+	if clusterConfig.Advanced == nil {
+		clusterConfig.Advanced = &provisioninginput.Advanced{}
+	}
+
+	if clusterConfig.Advanced.MachineGlobalConfig == nil {
+		clusterConfig.Advanced.MachineGlobalConfig = &rkev1.GenericMap{
+			Data: map[string]any{},
+		}
+	}
+
+	clusterConfig.Advanced.MachineGlobalConfig.Data["flannel-ipv6-masq"] = true
+
+	logrus.Info("Provisioning K3s cluster")
+	c.k3sCluster, err = resources.ProvisionRKE2K3SCluster(c.T(), standardUserClient, extClusters.K3SClusterType.String(), provider, *clusterConfig, machineConfigSpec, nil, true, false)
+	require.NoError(c.T(), err)
 }
 
 func (c *CertRotationIPv6TestSuite) TestCertRotationIPv6() {
@@ -79,6 +99,7 @@ func (c *CertRotationIPv6TestSuite) TestCertRotationIPv6() {
 		clusterID string
 	}{
 		{"RKE2_IPv6_Certificate_Rotation", c.rke2Cluster.ID},
+		{"K3S_IPv6_Certificate_Rotation", c.k3sCluster.ID},
 	}
 
 	for _, tt := range tests {
@@ -92,8 +113,13 @@ func (c *CertRotationIPv6TestSuite) TestCertRotationIPv6() {
 			logrus.Infof("Verifying the cluster is ready (%s)", cluster.Name)
 			provisioning.VerifyClusterReady(c.T(), c.client, cluster)
 
+			logrus.Infof("Verifying cluster deployments (%s)", cluster.Name)
+			err = deployment.VerifyClusterDeployments(c.client, cluster)
+			require.NoError(c.T(), err)
+
 			logrus.Infof("Verifying cluster pods (%s)", cluster.Name)
-			pods.VerifyClusterPods(c.T(), c.client, cluster)
+			err = pods.VerifyClusterPods(c.client, cluster)
+			require.NoError(c.T(), err)
 		})
 
 		params := provisioning.GetProvisioningSchemaParams(c.client, c.cattleConfig)
