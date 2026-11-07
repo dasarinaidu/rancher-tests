@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/rancher/shepherd/clients/rancher"
 	scimclient "github.com/rancher/shepherd/clients/rancher/auth/scim"
@@ -373,6 +374,44 @@ func (s *SCIMLoginAttributesTestSuite) TestSCIMAttributesSurviveProviderRefresh(
 	body, err := scimactions.DecodeJSONBody(getResp)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), externalID, body["externalId"], "SCIM should still report the externalId after a provider refresh")
+}
+
+func (s *SCIMLoginAttributesTestSuite) TestSCIMPatchDuringAProviderRefreshDoesNotFail() {
+	s.T().Skip("Known issue: https://github.com/rancher/rancher/issues/58637")
+
+	subSession := s.session.NewSession()
+	defer subSession.Cleanup()
+
+	ldapUser := s.authUsers[0]
+	distinguishedName := authactions.AuthUserDistinguishedName(authactions.OpenLdap, ldapUser.Username, s.userSearchBase, s.groupSearchBase)
+
+	logrus.Infof("Verifying a SCIM PATCH sent while a provider refresh of OpenLDAP user %s runs is accepted", ldapUser.Username)
+
+	require.NoError(s.T(), scimactions.DeleteSCIMUserByUserName(s.scimClient, distinguishedName),
+		"Should be able to clear a leftover SCIM user for %s", distinguishedName)
+
+	userID, err := scimactions.CreateSCIMUserForAuthUser(s.scimClient, subSession, distinguishedName, namegen.AppendRandomString(scimactions.SCIMExternalIDPrefix), "")
+	require.NoError(s.T(), err)
+
+	subClient, err := s.client.WithSession(subSession)
+	require.NoError(s.T(), err)
+
+	_, err = authactions.LoginAsAuthUser(subClient, &v3.User{Username: ldapUser.Username, Password: ldapUser.Password}, authactions.OpenLdap)
+	require.NoError(s.T(), err, "OpenLDAP user %s should be able to login", ldapUser.Username)
+
+	for round := 0; round < 100; round++ {
+		externalID := namegen.AppendRandomString(scimactions.SCIMExternalIDPrefix)
+
+		err = usersapi.RefreshUserAttributeDuring(s.client, userID, time.Duration(round%10)*10*time.Millisecond, func() error {
+			resp, patchErr := scimactions.PatchUser(s.scimClient, userID, "replace", "externalId", externalID)
+			if patchErr != nil {
+				return patchErr
+			}
+
+			return scimactions.CheckStatus(resp, http.StatusOK, fmt.Sprintf("Round %d: PATCH externalId during a provider refresh should return 200", round))
+		})
+		require.NoError(s.T(), err)
+	}
 }
 
 func (s *SCIMLoginAttributesTestSuite) TestSCIMGroupMembershipReplacedByProviderGroupsOnLogin() {
