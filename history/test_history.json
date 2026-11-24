@@ -3071,5 +3071,89 @@
     "workflow": "rancher-upgrade-cluster-provisioning",
     "job": "v2-16",
     "timestamp": "2026-11-24T03:40:51Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "dualstack-cluster-provisioning",
+    "job": "v2-15",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "dualstack-cluster-provisioning",
+    "job": "v2-16",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "dualstack-rancher-ipv6-cluster-provisioning",
+    "job": "v2-15",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "dualstack-rancher-ipv6-cluster-provisioning",
+    "job": "v2-16",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "ipv6-cluster-provisioning",
+    "job": "v2-15",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "ipv6-cluster-provisioning",
+    "job": "v2-16",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "prime-only-features",
+    "job": "v2-14",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "prime-only-features",
+    "job": "v2-15",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "prime-only-features",
+    "job": "v2-16",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "rancher-upgrade-cluster-provisioning",
+    "job": "v2-14",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "rancher-upgrade-cluster-provisioning",
+    "job": "v2-15",
+    "timestamp": "2026-11-24T16:47:09Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "rancher-upgrade-cluster-provisioning",
+    "job": "v2-16",
+    "timestamp": "2026-11-24T16:47:09Z"
   }
 ]
