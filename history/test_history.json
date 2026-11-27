@@ -3680,5 +3680,68 @@
     "workflow": "day2-ops-capi-pnp",
     "job": "v2-16",
     "timestamp": "2026-11-27T01:21:36Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "capi-pnp-cluster-provisioning",
+    "job": "v2-15",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "capi-pnp-cluster-provisioning",
+    "job": "v2-16",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "cluster-provisioning",
+    "job": "v2-14",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "cluster-provisioning",
+    "job": "v2-15",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "cluster-provisioning",
+    "job": "v2-16",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "community-to-prime-upgrade",
+    "job": "v2-15",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "community-to-prime-upgrade",
+    "job": "v2-16",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "day2-ops-capi-pnp",
+    "job": "v2-15",
+    "timestamp": "2026-11-27T15:54:50Z"
+  },
+  {
+    "date": "",
+    "status": "failure",
+    "workflow": "day2-ops-capi-pnp",
+    "job": "v2-16",
+    "timestamp": "2026-11-27T15:54:50Z"
   }
 ]
